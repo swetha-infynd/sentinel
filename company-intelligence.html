@@ -3093,7 +3093,16 @@ function citeBadges(sourceIds, pageNumbers) {
     const pageStr = (pageNumbers && pageNumbers[i] != null) ? ` (p.${pageNumbers[i]})` : '';
     const text = escapeHtml(id) + pageStr;
     if (!s) return `<span class="cite-badge" title="${escapeHtml(id)}">${text}</span>`;
-    return `<a class="cite-badge" href="${s.url}" target="_blank" rel="noopener" title="${escapeHtml(s.title)} — ${escapeHtml(s.publisher)}">${text}</a>`;
+    let titleParts = [s.title];
+    if (s.publisher) titleParts.push(`— ${s.publisher}`);
+    let titleStr = titleParts.join(' ');
+    if (s.excerpt) titleStr += `\n\nExcerpt: "${s.excerpt}"`;
+    const safeTitle = escapeHtml(titleStr);
+    
+    if (!s.url) {
+      return `<span class="cite-badge cursor-pointer" title="${safeTitle}">${text}</span>`;
+    }
+    return `<a class="cite-badge" href="${s.url}" target="_blank" rel="noopener" title="${safeTitle}">${text}</a>`;
   };
   const chips = sourceIds.map(badge).join('');
   return `<span class="cite-list">${chips}</span>`;
