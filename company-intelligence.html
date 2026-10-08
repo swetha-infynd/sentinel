@@ -57,6 +57,9 @@
     text-decoration: none; transition: all .15s;
   }
   .toc-pill:hover { color: #4338ca; border-color: #c7d2fe; background: var(--primary-soft); }
+  .toc-pill.active { color: #4338ca; border-color: #c7d2fe; background: var(--primary-soft); font-weight: 600; }
+  .gv-tabs { display: flex; gap: 6px; justify-content: flex-end; padding: 2px 4px 9px; }
+  .gv-tabs .gv-tab { cursor: pointer; font-family: inherit; }
 
   /* ---------- Cards ---------- */
   .panel {
@@ -3848,18 +3851,45 @@ function renderGraph(graph, formerOwnerIds) {
   const container = document.createElement('div');
   container.className = 'graph-panel';
   container.id = 'graph-' + Math.random().toString(36).slice(2, 8);
+
+  const tabs = document.createElement('div');
+  tabs.className = 'gv-tabs';
+  let orient = 'tb';
+  let tabTb = null, tabBt = null;
+
+  function show(o) {
+    orient = o;
+    if (tabTb) tabTb.classList.toggle('active', o === 'tb');
+    if (tabBt) tabBt.classList.toggle('active', o === 'bt');
+    mountGraphFlow(graph, container, o);
+  }
+  function mkTab(key, label) {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.className = 'toc-pill gv-tab' + (key === orient ? ' active' : '');
+    b.textContent = label;
+    b.addEventListener('click', () => show(key));
+    return b;
+  }
+  tabTb = mkTab('tb', 'Top → Bottom');
+  tabBt = mkTab('bt', 'Bottom → Top');
+  tabs.appendChild(tabTb);
+  tabs.appendChild(tabBt);
+
+  card.appendChild(tabs);
   card.appendChild(container);
   el.appendChild(card);
 
-  setTimeout(() => mountGraphFlow(graph, container, formerOwnerIds), 60);
+  setTimeout(() => show(orient), 60);
   return el;
 }
 
 /* ------------------------------------------------------------------ */
-/* Shared data model + neat left→right tree layout (used by React Flow */
-/* for the interactive panel and by buildPrintGraphSvg for the PDF).   */
+/* Shared data model + tidy top→bottom / bottom→top tree layout (used */
+/* by React Flow for the interactive panel and by buildPrintGraphSvg  */
+/* for the PDF).                                                       */
 /* ------------------------------------------------------------------ */
-function buildGraphModel(graph) {
+function buildGraphModel(graph, orientation) {
   const rawNodes = (graph && graph.nodes) || [];
   if (!rawNodes.length) return null;
   const rootId = (rawNodes.find(n => n.node_type === 'Company') || rawNodes[0]).id;
@@ -3920,28 +3950,34 @@ function buildGraphModel(graph) {
     if (!isTreePair.has(k) && !extraEdges.some(x => pairKey(x.source, x.target) === k)) extraEdges.push(e);
   });
 
-  /* ---- tidy left→right layout (post-order leaf slots) ---- */
-  const ROW = 122, COL = 640, NODE_H = 92, BRANCH_W = 320, ROOT_W = 340;
-  const topOf = {}; let cursor = 0;
+  /* ---- tidy vertical layout (post-order leaf slots) ---- */
+  const COL = 360, STEP = 210, NODE_H = 92, BRANCH_W = 320, ROOT_W = 340;
+  const centerX = {}; let slot = 0;
   function place(id) {
     const kids = childList.get(id) || [];
-    if (!kids.length) { topOf[id] = cursor * ROW; cursor++; return; }
+    if (!kids.length) { centerX[id] = slot * COL; slot++; return; }
     kids.forEach(place);
-    const cs = kids.map(k => topOf[k] + NODE_H / 2);
-    topOf[id] = (Math.min(...cs) + Math.max(...cs)) / 2 - NODE_H / 2;
+    const cs = kids.map(k => centerX[k]);
+    centerX[id] = (Math.min(...cs) + Math.max(...cs)) / 2;
   }
   place(rootId);
-  const minTop = Math.min(...Object.values(topOf));
+  const bt = orientation === 'bt';
+  let minLeft = Infinity, maxDepth = 0;
+  rawNodes.forEach(n => {
+    minLeft = Math.min(minLeft, centerX[n.id] - (n.id === rootId ? ROOT_W : BRANCH_W) / 2);
+    maxDepth = Math.max(maxDepth, depth.get(n.id));
+  });
   const items = new Map();
   rawNodes.forEach(n => {
     const isRoot = n.id === rootId;
+    const w = isRoot ? ROOT_W : BRANCH_W;
+    const d = depth.get(n.id);
     items.set(n.id, {
       raw: n, isRoot,
-      x: depth.get(n.id) * COL,
-      y: topOf[n.id] - minTop,
-      w: isRoot ? ROOT_W : BRANCH_W,
-      h: NODE_H,
-      depth: depth.get(n.id)
+      x: centerX[n.id] - w / 2 - minLeft,
+      y: (bt ? maxDepth - d : d) * STEP,
+      w, h: NODE_H,
+      depth: d
     });
   });
 
@@ -3966,6 +4002,7 @@ function buildGraphModel(graph) {
         id: n.id, label: n.label, subtype: n.subtype || '', node_type: n.node_type,
         percentage: n.percentage, isRoot: it.isRoot, isPerson: n.node_type === 'Person',
         color: colorOf(n),
+        orientation: bt ? 'bt' : 'tb',
         grad: 'linear-gradient(135deg, ' + colorOf(n) + ', ' + colorOf(n) + 'cc)',
         initials: initials(n.label),
         tip: [n.label, n.subtype, n.percentage != null ? n.percentage + '% ownership' : ''].filter(Boolean).join('\n')
@@ -3995,14 +4032,14 @@ function buildGraphModel(graph) {
     });
   });
   extraEdges.forEach(e => {
-    const a = topOf[e.source] - minTop, b = topOf[e.target] - minTop;
-    const src = a <= b ? e.source : e.target;
-    const tgt = a <= b ? e.target : e.source;
+    const a = items.get(e.source), b = items.get(e.target);
+    const src = a.x <= b.x ? e.source : e.target;
+    const tgt = a.x <= b.x ? e.target : e.source;
     const base = mkBase('#f59e0b', 1.8, '6 5');
     rfEdges.push({
       id: 'x-' + src + '-' + tgt,
       source: src, target: tgt,
-      sourceHandle: 'b', targetHandle: 't',
+      sourceHandle: 'xout', targetHandle: 'xin',
       type: 'smoothstep',
       baseStyle: base, style: base, zIndex: 5,
       label: shortLabel(e) || undefined,
@@ -4020,11 +4057,12 @@ function buildGraphModel(graph) {
 /* ------------------------------------------------------------------ */
 function BranchNode({ data }) {
   const h = React.createElement;
+  const topDown = (data.orientation || 'tb') !== 'bt';
   return h('div', { className: 'rf-node-inner', title: data.tip },
-    h(RF.Handle, { type: 'target', position: RF.Position.Left, id: 'in' }),
-    h(RF.Handle, { type: 'source', position: RF.Position.Right, id: 'out' }),
-    h(RF.Handle, { type: 'source', position: RF.Position.Bottom, id: 'b' }),
-    h(RF.Handle, { type: 'target', position: RF.Position.Top, id: 't' }),
+    h(RF.Handle, { type: 'target', position: topDown ? RF.Position.Top : RF.Position.Bottom, id: 'in' }),
+    h(RF.Handle, { type: 'source', position: topDown ? RF.Position.Bottom : RF.Position.Top, id: 'out' }),
+    h(RF.Handle, { type: 'source', position: RF.Position.Right, id: 'xout' }),
+    h(RF.Handle, { type: 'target', position: RF.Position.Left, id: 'xin' }),
     h('div', { className: 'rf-card' + (data.isPerson ? ' rf-person' : ''), style: { '--ac': data.color } },
       h('div', { className: 'rf-avatar', style: { background: data.grad } }, data.initials),
       h('div', { className: 'rf-mid' },
@@ -4035,9 +4073,10 @@ function BranchNode({ data }) {
 
 function RootNode({ data }) {
   const h = React.createElement;
+  const topDown = (data.orientation || 'tb') !== 'bt';
   return h('div', { className: 'rf-root-inner', title: data.tip },
-    h(RF.Handle, { type: 'source', position: RF.Position.Right, id: 'out' }),
-    h(RF.Handle, { type: 'target', position: RF.Position.Left, id: 'in' }),
+    h(RF.Handle, { type: 'source', position: topDown ? RF.Position.Bottom : RF.Position.Top, id: 'out' }),
+    h(RF.Handle, { type: 'target', position: topDown ? RF.Position.Top : RF.Position.Bottom, id: 'in' }),
     h('div', { className: 'rf-root' },
       h('div', { className: 'rf-root-name' }, data.label),
       h('div', { className: 'rf-root-sub' }, data.subtype)));
@@ -4056,9 +4095,9 @@ function FitOnMount() {
   return null;
 }
 
-function GraphApp({ graph }) {
+function GraphApp({ graph, orientation }) {
   const h = React.createElement;
-  const model = React.useMemo(() => buildGraphModel(graph), [graph]);
+  const model = React.useMemo(() => buildGraphModel(graph, orientation), [graph, orientation]);
   if (!model) return h('div', { className: 'mm-empty' }, 'No graph data');
 
   const [nodes, setNodes, onNodesChange] = RF.useNodesState(model.rfNodes);
@@ -4119,7 +4158,8 @@ const GRAPH_LEGEND_HTML =
   '<div class="rf-legend-row"><span class="rf-legend-line"></span>Cross tie</div>' +
   '<div class="rf-legend-tip">Click a person to open their profile</div>';
 
-function mountGraphFlow(graph, container) {
+function mountGraphFlow(graph, container, orientation) {
+  if (container._rfRoot) { try { container._rfRoot.unmount(); } catch (e) {} container._rfRoot = null; }
   container.innerHTML = '';
   if (!RF || !window.React || !window.ReactDOM) {
     container.innerHTML = '<div class="mm-empty">The interactive tree needs the React Flow CDN — check your network connection.</div>';
@@ -4135,21 +4175,22 @@ function mountGraphFlow(graph, container) {
   container.appendChild(rfHost);
 
   const root = ReactDOM.createRoot(rfHost);
-  root.render(React.createElement(GraphApp, { graph: graph || null }));
+  container._rfRoot = root;
+  root.render(React.createElement(GraphApp, { graph: graph || null, orientation: orientation || 'tb' }));
 }
 
 /* ------------------------------------------------------------------ */
 /* Static SVG snapshot of the same tidy tree — embedded in the PDF.    */
 /* ------------------------------------------------------------------ */
 function buildPrintGraphSvg(graph) {
-  const model = buildGraphModel(graph);
+  const model = buildGraphModel(graph, 'tb');
   if (!model) return '';
   const esc = escapeHtml;
   const { items, rootId, treeEdges, extraEdges } = model;
-  const PAD = 64;
+  const PAD = 64, LEGEND_H = 60;
   let maxX = 0, maxY = 0;
   items.forEach(it => { maxX = Math.max(maxX, it.x + it.w); maxY = Math.max(maxY, it.y + it.h); });
-  const W = maxX + PAD * 2, H = maxY + PAD * 2;
+  const W = maxX + PAD * 2, H = maxY + PAD * 2 + LEGEND_H;
   const X = id => items.get(id).x + PAD;
   const Y = id => items.get(id).y + PAD;
 
@@ -4166,27 +4207,27 @@ function buildPrintGraphSvg(graph) {
   let out = '';
   // background
   out += '<rect width="' + W + '" height="' + H + '" fill="#ffffff" rx="14"/>';
-  // tree edges
+  // tree edges (parent bottom-center → child top-center)
   treeEdges.forEach(t => {
     const s = items.get(t.source), d = items.get(t.target);
-    const x1 = X(t.source) + s.w, y1 = Y(t.source) + s.h / 2;
-    const x2 = X(t.target), y2 = Y(t.target) + d.h / 2;
+    const x1 = X(t.source) + s.w / 2, y1 = Y(t.source) + s.h;
+    const x2 = X(t.target) + d.w / 2, y2 = Y(t.target);
     const c = model.colorOf(model.byId.get(t.target));
-    const dx = x2 - x1, ctrl = Math.max(50, dx * 0.55);
+    const dy = y2 - y1, ctrl = Math.max(50, dy * 0.55);
     const sw = t.meta && t.meta.weight != null ? Math.min(4, Math.max(2, 1.6 + t.meta.weight / 22)) : 2.2;
-    out += '<path d="M' + x1 + ' ' + y1 + ' C' + (x1 + ctrl) + ' ' + y1 + ', ' + (x2 - ctrl) + ' ' + y2 + ', ' + x2 + ' ' + y2 +
+    out += '<path d="M' + x1 + ' ' + y1 + ' C' + x1 + ' ' + (y1 + ctrl) + ', ' + x2 + ' ' + (y2 - ctrl) + ', ' + x2 + ' ' + y2 +
            '" fill="none" stroke="' + c + '" stroke-opacity="0.65" stroke-width="' + sw + '"/>';
   });
-  // extra (dashed) edges
+  // extra (dashed) edges — left node's right side → right node's left side
   extraEdges.forEach(e => {
     const a = items.get(e.source), b = items.get(e.target);
-    const src = a.y <= b.y ? e.source : e.target;
-    const tgt = a.y <= b.y ? e.target : e.source;
+    const src = a.x <= b.x ? e.source : e.target;
+    const tgt = a.x <= b.x ? e.target : e.source;
     const sa = items.get(src), ta = items.get(tgt);
-    const x1 = X(src) + sa.w / 2, y1 = Y(src) + sa.h;
-    const x2 = X(tgt) + ta.w / 2, y2 = Y(tgt);
-    const midY = (y1 + y2) / 2;
-    out += '<path d="M' + x1 + ' ' + y1 + ' Q' + (x1 - 46) + ' ' + midY + ' ' + x2 + ' ' + y2 +
+    const x1 = X(src) + sa.w, y1 = Y(src) + sa.h / 2;
+    const x2 = X(tgt), y2 = Y(tgt) + ta.h / 2;
+    const dx = Math.max(40, (x2 - x1) * 0.5);
+    out += '<path d="M' + x1 + ' ' + y1 + ' C' + (x1 + dx) + ' ' + y1 + ', ' + (x2 - dx) + ' ' + y2 + ', ' + x2 + ' ' + y2 +
            '" fill="none" stroke="#f59e0b" stroke-opacity="0.9" stroke-width="1.6" stroke-dasharray="6 5"/>';
   });
 
@@ -4223,8 +4264,8 @@ function buildPrintGraphSvg(graph) {
     }
   });
 
-  // legend (top-left, inside padding)
-  const lx = PAD, ly = PAD - 30;
+  // legend (bottom-left, below the tree so it never collides with the root card)
+  const lx = PAD, ly = H - LEGEND_H + 4;
   const colors = [['Company', '#4f46e5'], ['Person', '#10b981'], ['Institution', '#f59e0b']];
   out += '<g font-family="Inter, Arial, sans-serif" font-size="9.5" fill="#475569">';
   colors.forEach((c, i) => {
