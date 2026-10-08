@@ -380,7 +380,7 @@
           <span id="srcCount">0</span> sources indexed
         </span>
         <button class="btn btn-ghost" onclick="loadSample()" title="Restore the built-in sample report">↻ Reset Sample</button>
-        <button class="btn btn-ghost" onclick="openJsonModal()" title="Paste a new report JSON">⎘ Load JSON</button>
+        <button class="btn btn-ghost" onclick="openJsonModal()" title="Paste a company profile JSON and a people profile JSON">⎘ Load JSONs</button>
         <button class="btn btn-primary" onclick="window.print()" title="Generate a print-ready A4 document (choose 'Save as PDF' in the dialog)">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 6 2 18 2 18 9"/><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"/><rect x="6" y="14" width="12" height="8"/></svg>
           Export PDF
@@ -427,13 +427,20 @@
   <div class="modal">
     <div class="p-5 border-b border-slate-200 flex items-center justify-between">
       <div>
-        <h3 class="text-base font-semibold text-slate-900">Load New Report JSON</h3>
-        <p class="text-xs text-slate-500 mt-0.5">Paste a JSON following the same schema</p>
+        <h3 class="text-base font-semibold text-slate-900">Load Report JSONs</h3>
+        <p class="text-xs text-slate-500 mt-0.5">Paste the company profile JSON and the people profile JSON — both are merged into one report</p>
       </div>
       <button class="btn btn-ghost" onclick="closeJsonModal()" aria-label="Close">✕</button>
     </div>
     <div class="p-5 flex-1 overflow-auto">
-      <textarea class="json-input" id="jsonInput" placeholder='Paste your JSON here...'></textarea>
+      <div>
+        <label class="kv-label mb-1.5 block" for="jsonInput">Company Profile JSON</label>
+        <textarea class="json-input" id="jsonInput" style="min-height:170px" placeholder='Paste the company profile JSON (OwnershipGovernanceReport: meta, company_overview, ownership_structure, owners, red_flags, subsidiaries, sources, graph, ...) here...'></textarea>
+      </div>
+      <div class="mt-4">
+        <label class="kv-label mb-1.5 block" for="peopleJsonInput">People Profile JSON <span class="normal-case font-normal tracking-normal text-slate-400">(optional — leave empty for a company-only report)</span></label>
+        <textarea class="json-input" id="peopleJsonInput" style="min-height:170px" placeholder='Paste the people profile JSON (KeyExecutivesReport: company, executives, sources, data_gaps) here...'></textarea>
+      </div>
       <div id="jsonError" class="mt-2 text-sm text-red-600 hidden"></div>
     </div>
     <div class="p-5 border-t border-slate-200 flex justify-end gap-2">
@@ -3226,15 +3233,14 @@ function renderRedFlags(rf) {
   const bannerIcon = hasFlags ? '⚠' : '✓';
   const bannerText = hasFlags ? `${flagCount} Red Flag${flagCount !== 1 ? 's' : ''} Identified` : 'No Red Flags — Clear';
 
-  const flagItems = (rf.flags || []).map((f, i) => {
-    const triggered = f.triggered;
-    const icon = triggered ? '✗' : '✓';
-    const chipClass = triggered ? 'chip-red' : 'chip-green';
+  const triggeredFlags = (rf.flags || []).map((f, i) => ({ f, i })).filter(x => x.f.triggered);
+
+  const flagItems = triggeredFlags.map(({ f, i }) => {
     const fsEntry = findFieldSourcesByPrefix('company_overview.red_flags.flags[' + i + ']');
     const resolvedPageNums = f.page_numbers || (fsEntry ? fsEntry.page_numbers : null);
     return `
-      <div class="flex items-start gap-3 p-3 rounded-lg ${triggered ? 'bg-red-50 border border-red-100' : 'bg-emerald-50/50 border border-emerald-100'}">
-        <span class="chip ${chipClass} shrink-0 mt-0.5">${icon}</span>
+      <div class="flex items-start gap-3 p-3 rounded-lg bg-red-50 border border-red-100">
+        <span class="chip chip-red shrink-0 mt-0.5">✗</span>
         <div class="min-w-0 flex-1">
           <div class="font-semibold text-sm text-slate-800">${escapeHtml(f.flag_name)}</div>
           ${f.evidence ? `<p class="text-xs text-slate-600 leading-relaxed mt-1">${escapeHtml(f.evidence)}</p>` : ''}
@@ -3267,10 +3273,11 @@ function renderRedFlags(rf) {
 
     ${rf.summary ? `<p class="text-sm text-slate-600 leading-relaxed mb-5">${escapeHtml(rf.summary)}</p>` : ''}
 
+    ${flagItems ? `
     <div class="kv-label mb-3">Standard Checks</div>
     <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
       ${flagItems}
-    </div>
+    </div>` : ''}
 
     ${additionalFlags ? `
     <div class="mt-6 pt-6 border-t border-slate-200/70">
@@ -4320,8 +4327,10 @@ function renderBoard(board, execs) {
 
 // ============ INDIVIDUAL PROFILES ============
 function renderIndividualProfiles(profiles) {
+  if (!profiles || !profiles.length) return document.createTextNode('');
+
   const el = document.createElement('section');
-  el.appendChild(sectionHeader('Individual Profiles', 'Detailed person records with compliance screening'));
+  el.appendChild(sectionHeader('Individual Profiles', 'Detailed person records'));
 
   const wrap = document.createElement('div');
   wrap.className = 'space-y-3 fade-in';
@@ -4330,10 +4339,6 @@ function renderIndividualProfiles(profiles) {
     const details = document.createElement('details');
     details.className = 'panel p-5';
     details.id = 'profile-' + p.id;
-    const cs = p.compliance_screening || {};
-    const pepOk = !cs.pep?.is_pep;
-    const advOk = !cs.adverse_media?.is_adverse;
-    const sancOk = !cs.sanctions?.is_sanctioned;
 
     details.innerHTML = `
       <summary class="flex items-center gap-3 cursor-pointer">
@@ -4344,11 +4349,11 @@ function renderIndividualProfiles(profiles) {
           <div class="text-xs text-slate-500">${escapeHtml(p.designation || '')}</div>
         </div>
         <div class="flex gap-2 shrink-0">
-          ${confidenceChip(p.confidence)}
+          ${p.confidence ? confidenceChip(p.confidence) : ''}
         </div>
       </summary>
 
-      <div class="mt-5 pt-5 border-t border-slate-200/70 grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div class="mt-5 pt-5 border-t border-slate-200/70">
         <div>
           <div class="kv-label mb-2">Identity</div>
           <div class="text-sm space-y-1.5 text-slate-700">
@@ -4362,27 +4367,6 @@ function renderIndividualProfiles(profiles) {
           <div class="kv-label mb-2 mt-4">Roles</div>
           <div class="flex flex-wrap gap-1.5">
             ${(p.roles || []).map(r => `<span class="chip">${escapeHtml(r)}</span>`).join('')}
-          </div>
-        </div>
-
-        <div>
-          <div class="kv-label mb-2">Compliance Screening</div>
-          <div class="space-y-2 text-slate-700">
-            <div class="flex items-center gap-2 text-sm">
-              <span class="w-2 h-2 rounded-full ${pepOk ? 'bg-emerald-500' : 'bg-red-500'}"></span>
-              <span class="font-medium">PEP:</span> ${pepOk ? 'No match' : 'Identified'}
-              ${cs.pep?.details ? `<span class="text-xs text-slate-400">— ${escapeHtml(cs.pep.details)}</span>` : ''}
-            </div>
-            <div class="flex items-center gap-2 text-sm">
-              <span class="w-2 h-2 rounded-full ${advOk ? 'bg-emerald-500' : 'bg-red-500'}"></span>
-              <span class="font-medium">Adverse media:</span> ${advOk ? 'None found' : 'Found'}
-            </div>
-            <div class="flex items-center gap-2 text-sm">
-              <span class="w-2 h-2 rounded-full ${sancOk ? 'bg-emerald-500' : 'bg-red-500'}"></span>
-              <span class="font-medium">Sanctions:</span> ${sancOk ? 'Clear' : 'Matched'}
-              ${cs.sanctions?.lists_checked?.length ? `<span class="text-xs text-slate-400">— ${(cs.sanctions.lists_checked).join(', ')}</span>` : ''}
-            </div>
-            <div class="text-xs text-slate-400 mt-1">Screened: ${formatDate(cs.screening_date)}</div>
           </div>
         </div>
       </div>
@@ -4702,8 +4686,6 @@ function buildPrintDoc(d) {
   const srcLine = (ids) => (ids && ids.length) ? `<div class="doc-src">Sources: ${ids.map(esc).join(', ')}</div>` : '';
 
   const persons = (d.individual_profiles || []).map(p => {
-    const cs = p.compliance_screening || {};
-    const flag = ok => ok ? 'No match' : 'Identified';
     return `
       <div class="doc-person">
         <h3>${esc(p.full_name)} <span class="doc-role">— ${esc(p.designation || (p.roles || [])[0] || '')}</span></h3>
@@ -4713,11 +4695,7 @@ function buildPrintDoc(d) {
           ['Nationality', esc(p.nationality)],
           ['Residence', esc(p.country_of_residence)],
           ['DOB / Age', esc(p.date_of_birth_or_age)],
-          ['Roles', (p.roles || []).map(esc).join('; ')],
-          ['PEP screening', cs.pep ? flag(!cs.pep.is_pep) + (cs.pep.details ? ' — ' + esc(cs.pep.details) : '') : ''],
-          ['Adverse media', cs.adverse_media ? flag(!cs.adverse_media.is_adverse) : ''],
-          ['Sanctions', cs.sanctions ? flag(!cs.sanctions.is_sanctioned) + ' (' + (cs.sanctions.lists_checked || []).join(', ') + ')' : ''],
-          ['Screened on', F(cs.screening_date)]
+          ['Roles', (p.roles || []).map(esc).join('; ')]
         ])}
         <p class="doc-p"><b>Biography.</b> ${esc(p.bio_full || '')}</p>
         ${(p.career_history || []).length ? `
@@ -4853,10 +4831,10 @@ function buildPrintDoc(d) {
     ${d.company_overview?.red_flags ? `
     <p class="doc-p"><b>Status:</b> ${d.company_overview?.red_flags.any_red_flag ? d.company_overview?.red_flags.red_flag_count + ' red flag(s) identified' : 'No red flags — clear'}</p>
     ${d.company_overview?.red_flags.summary ? `<p class="doc-p">${esc(d.company_overview?.red_flags.summary)}</p>` : ''}
-    ${(d.company_overview?.red_flags.flags || []).length ? `
+    ${(d.company_overview?.red_flags.flags || []).some(f => f.triggered) ? `
     <table class="doc-tbl">
       <tr><th>Check</th><th>Result</th><th>Evidence</th></tr>
-      ${d.company_overview?.red_flags.flags.map(f => `<tr><td>${esc(f.flag_name)}</td><td>${f.triggered ? 'TRIGGERED' : 'Clear'}</td><td>${esc(f.evidence || '')}</td></tr>`).join('')}
+      ${d.company_overview?.red_flags.flags.filter(f => f.triggered).map(f => `<tr><td>${esc(f.flag_name)}</td><td>TRIGGERED</td><td>${esc(f.evidence || '')}</td></tr>`).join('')}
     </table>` : ''}
     ${(d.company_overview?.red_flags.additional_red_flags || []).length ? `
     <p class="doc-p"><b>Additional red flags:</b></p>
@@ -4987,30 +4965,230 @@ function buildPrintDoc(d) {
   `;
 }
 
+// ============ EXTRACTION (company profile + people profile JSON → report model) ============
+function uniqueStrings(list) {
+  return Array.from(new Set((list || [])
+    .filter(s => s != null && String(s).trim() !== '')
+    .map(s => String(s).trim())));
+}
+
+function deriveDirectorType(title) {
+  const t = String(title || '').toLowerCase();
+  if (t.includes('independent')) return 'Independent Non-Executive';
+  if (t.includes('chair')) return 'Chair';
+  if (t.includes('non-executive') || t.includes('non executive')) return 'Non-Executive';
+  if (t.includes('secretary')) return 'Officer';
+  return 'Executive';
+}
+
+function educationToString(e) {
+  if (e == null) return '';
+  if (typeof e === 'string') return e;
+  return [e.qualification, e.institution, e.period].filter(Boolean).join(', ');
+}
+
+function directorshipToString(o) {
+  if (o == null) return '';
+  if (typeof o === 'string') return o;
+  if (o.company && o.role) return `${o.company} (${o.role})`;
+  return o.company || o.role || o.country || '';
+}
+
+/* People sources are merged into the company bibliography. If a source id is
+   already used by the company profile the people copy is re-keyed (S1 → S1-P2)
+   and every source reference coming from the people JSON is remapped. */
+function mergePeopleSources(companySources, peopleSources) {
+  const merged = (companySources || []).map(s => ({ ...s }));
+  const used = new Set(merged.map(s => s.id));
+  const idMap = {};
+  (peopleSources || []).forEach(s => {
+    if (!s || s.id == null) return;
+    let id = s.id;
+    if (used.has(id)) {
+      let n = 2;
+      while (used.has(id + '-P' + n)) n++;
+      id = id + '-P' + n;
+    }
+    used.add(id);
+    idMap[s.id] = id;
+    merged.push({ ...s, id });
+  });
+  return { sources: merged, idMap };
+}
+
+/* Normalises the company profile JSON (OwnershipGovernanceReport) into the
+   shape the renderer consumes: top-level red_flags / subsidiaries / partners
+   are re-homed where the render functions read them. */
+function normalizeCompany(company) {
+  const d = { ...company };
+  const co = { ...(d.company_overview || {}) };
+  if (!co.red_flags && d.red_flags) co.red_flags = d.red_flags;
+  d.company_overview = co;
+
+  if (d.source_of_funds_and_wealth) {
+    const sof = { ...d.source_of_funds_and_wealth };
+    if (!Array.isArray(sof.subsidiaries) && Array.isArray(d.subsidiaries)) sof.subsidiaries = d.subsidiaries;
+    if (!Array.isArray(sof.partners) && Array.isArray(d.partners)) sof.partners = d.partners;
+    d.source_of_funds_and_wealth = sof;
+  }
+
+  d.field_sources = d.field_sources || co.field_sources || [];
+
+  const meta = { ...(d.meta || {}) };
+  meta.legal_name_resolved = meta.legal_name_resolved || co.legal_name || '';
+  meta.input_query = meta.input_query || co.legal_name || '';
+  meta.data_gaps = uniqueStrings(meta.data_gaps);
+  d.meta = meta;
+  return d;
+}
+
+/* Merges the people profile JSON (KeyExecutivesReport) into the report:
+   executives → Board / Key Executives / Individual Profiles, its sources are
+   appended to the bibliography and its data gaps appended to the report gaps. */
+function applyPeopleProfile(d, people) {
+  const merged = mergePeopleSources(d.sources, people.sources);
+  d.sources = merged.sources;
+  const idMap = merged.idMap;
+  const remap = ids => Array.isArray(ids) ? ids.map(x => idMap[x] || x) : ids;
+
+  const co = d.company_overview || {};
+  const pco = people.company || {};
+  ['legal_name', 'registration_number', 'registry_name', 'jurisdiction', 'country', 'website'].forEach(k => {
+    if ((co[k] == null || co[k] === '') && pco[k] != null && pco[k] !== '') co[k] = pco[k];
+  });
+
+  d.meta.data_gaps = uniqueStrings([...(d.meta.data_gaps || []), ...(people.data_gaps || [])]);
+
+  const execs = Array.isArray(people.executives) ? people.executives : [];
+  const board = [], keyExecs = [], profiles = [];
+
+  execs.forEach(x => {
+    if (!x) return;
+    const src = remap(x.source_ids);
+    const bio = x.bio_full || x.bio_short || '';
+    profiles.push({
+      id: x.id,
+      full_name: x.name,
+      full_name_as_per_legal_doc: x.full_name_as_per_legal_doc || x.name,
+      aka: x.aka || [],
+      roles: uniqueStrings([x.title, ...(x.roles || [])]),
+      designation: x.title,
+      nationality: x.nationality,
+      country_of_residence: x.country_of_residence,
+      date_of_birth_or_age: x.date_of_birth_or_age,
+      linkedin_url: x.linkedin_url || null,
+      compliance_screening: x.compliance_screening || null,
+      source_of_wealth: x.source_of_wealth,
+      source_of_wealth_category: x.source_of_wealth_category,
+      source_of_wealth_source_ids: src,
+      bio_full: bio,
+      education: (x.education || []).map(educationToString).filter(Boolean),
+      career_history: (x.career_history || []).map(c => ({
+        period: c.period || '',
+        role: c.role || '',
+        organization: c.organisation || c.organization || ''
+      })),
+      other_directorships: (x.other_directorships || []).map(directorshipToString).filter(Boolean),
+      connections: [],
+      confidence: x.confidence,
+      source_ids: src,
+      notes: x.notes
+    });
+
+    const common = {
+      id: x.id,
+      name: x.name,
+      appointed_date: x.appointed_date,
+      bio_short: bio,
+      source_ids: src,
+      notes: x.notes,
+      individual_profile_id: x.id
+    };
+    if (/director|chair/i.test(String(x.title || ''))) {
+      board.push({ ...common, role: x.title, director_type: deriveDirectorType(x.title) });
+    } else {
+      keyExecs.push({ ...common, title: x.title });
+    }
+  });
+
+  d.board_of_directors = board;
+  d.key_executives = keyExecs;
+  d.individual_profiles = profiles;
+  d.meta.legal_name_resolved = d.meta.legal_name_resolved || co.legal_name || '';
+  d.meta.input_query = d.meta.input_query || co.legal_name || '';
+  return d;
+}
+
+/* Builds the internal report model from the two JSON inputs. */
+function extractReport(companyJson, peopleJson) {
+  if (!companyJson || typeof companyJson !== 'object' || Array.isArray(companyJson)) {
+    throw new Error('Company profile JSON must be an object');
+  }
+  if (!companyJson.meta || !companyJson.company_overview) {
+    throw new Error('Company profile JSON must contain "meta" and "company_overview"');
+  }
+  const d = normalizeCompany(companyJson);
+  if (peopleJson != null) {
+    if (typeof peopleJson !== 'object' || Array.isArray(peopleJson)) {
+      throw new Error('People profile JSON must be an object');
+    }
+    if (!Array.isArray(peopleJson.executives)) {
+      throw new Error('People profile JSON must contain an "executives" array');
+    }
+    applyPeopleProfile(d, peopleJson);
+  }
+  return d;
+}
+
 // ============ JSON MODAL ============
 function openJsonModal() {
   document.getElementById('jsonModal').classList.add('show');
   document.getElementById('jsonInput').value = '';
+  document.getElementById('peopleJsonInput').value = '';
   document.getElementById('jsonError').classList.add('hidden');
 }
 function closeJsonModal() {
   document.getElementById('jsonModal').classList.remove('show');
 }
 function loadNewJson() {
-  const txt = document.getElementById('jsonInput').value.trim();
   const errEl = document.getElementById('jsonError');
-  if (!txt) { errEl.textContent = 'Please paste JSON first.'; errEl.classList.remove('hidden'); return; }
+  const fail = msg => { errEl.textContent = msg; errEl.classList.remove('hidden'); };
+
+  const coTxt = document.getElementById('jsonInput').value.trim();
+  const peTxt = document.getElementById('peopleJsonInput').value.trim();
+
+  if (!coTxt) { fail('Please paste the Company Profile JSON first.'); return; }
+
+  let companyJson = null, peopleJson = null;
   try {
-    const parsed = JSON.parse(txt);
-    if (!parsed || typeof parsed !== 'object') throw new Error('Root must be an object');
-    if (!parsed.meta || !parsed.company_overview) throw new Error('Missing required top-level fields: meta, company_overview');
-    currentData = parsed;
+    companyJson = JSON.parse(coTxt);
+    if (!companyJson || typeof companyJson !== 'object' || Array.isArray(companyJson)) {
+      throw new Error('root must be an object');
+    }
+  } catch (e) {
+    fail('Invalid Company Profile JSON: ' + e.message);
+    return;
+  }
+
+  if (peTxt) {
+    try {
+      peopleJson = JSON.parse(peTxt);
+      if (!peopleJson || typeof peopleJson !== 'object' || Array.isArray(peopleJson)) {
+        throw new Error('root must be an object');
+      }
+    } catch (e) {
+      fail('Invalid People Profile JSON: ' + e.message);
+      return;
+    }
+  }
+
+  try {
+    currentData = extractReport(companyJson, peopleJson);
     render();
     closeJsonModal();
     window.scrollTo({ top: 0, behavior: 'smooth' });
   } catch (e) {
-    errEl.textContent = 'Invalid JSON: ' + e.message;
-    errEl.classList.remove('hidden');
+    fail('Cannot load report: ' + e.message);
   }
 }
 function loadSample() {
