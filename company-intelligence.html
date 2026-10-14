@@ -541,7 +541,6 @@ const SAMPLE_DATA = {
     "industry": "Trading Companies & Distributors",
     "sub_industry": "Trading Companies & Distributors",
     "un_isic_code": "7730",
-    "description": "Andrews Sykes Group plc is an England-and-Wales-incorporated public limited company, originally established in the UK in 1857 and incorporated on 25 July 1921, admitted to trading on AIM since 2001 (previously on the Main Market of the London Stock Exchange). It is a specialist equipment hire, sales and installation group focused on pumping, climate control and ventilation, operating over 30 depots in the UK, Europe and the Middle East. The company's principal activity is that of an investment holding company. It is 86.90% controlled by EOI Sykes Sarl (Luxembourg), ultimately controlled in equal proportions by the Ariane Trust and the Eden Trust.",
     "products_and_services": [
       "Specialist equipment hire (pumping, portable heating, air conditioning, chillers, boilers, drying, dehumidification, ventilation)",
       "Equipment sales",
@@ -3349,14 +3348,6 @@ function renderCompanyOverview(co) {
       </div>
     </div>
 
-    <div class="mt-6 pt-6 border-t border-slate-200/70">
-      <div class="flex items-start justify-between gap-4 mb-2">
-        <div class="kv-label">Description</div>
-        <div class="kv-cites text-right shrink-0">${citeFor('company_overview.description')}</div>
-      </div>
-      <p class="text-sm text-slate-700 leading-relaxed">${escapeHtml(co.description)}</p>
-    </div>
-
     ${(co.products_and_services && co.products_and_services.length > 0) ? `
     <div class="mt-6 pt-6 border-t border-slate-200/70">
       <div class="flex items-start justify-between gap-4 mb-3">
@@ -4858,7 +4849,6 @@ function buildPrintDoc(d) {
       ['Website', esc(co.website)],
       ['Accounts regime', esc(co.extra?.accounts_regime)]
     ])}
-    <p class="doc-p"><b>Description.</b> ${esc(co.description || '')}</p>
     ${(co.products_and_services && co.products_and_services.length > 0) ? `<p class="doc-p"><b>Products &amp; services.</b> ${co.products_and_services.map(esc).join('; ')}</p>` : ''}
     ${(co.phoenixing && co.phoenixing.detected && co.phoenixing.detected !== 'false') ? `<p class="doc-p"><b>Phoenixing status.</b> DETECTED ${co.phoenixing.narrative ? '— ' + esc(co.phoenixing.narrative) : ''}</p>` : ''}
     <p class="doc-p"><b>SIC codes.</b> ${esc(formatCodeList(co.sic_codes || co.extra?.sic_codes))}</p>
