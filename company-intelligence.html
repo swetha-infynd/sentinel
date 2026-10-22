@@ -2219,7 +2219,7 @@
             "S6"
           ],
           "notes": "Website lists 'Jean-Jacques Murray'; Companies House lists 'Jean Jacques Murray'. PSC registered 24 July 2017; nature of control: 'Has significant influence or control over the trustees of a trust'.",
-          "linkedin": {
+          "linkedin_informations": {
             "confirmed": true,
             "confirmation_basis": "Public profile headline matches name and current Executive Chairman position at Andrews Sykes Group plc",
             "profile_url": "https://www.linkedin.com/in/jean-jacques-murray-example",
@@ -2363,7 +2363,7 @@
             "S6"
           ],
           "notes": "Website lists 'Jean-Pierre Murray'; Companies House lists 'Jean-Pierre Christophe Murray'. PSC registered 24 July 2017; nature of control: 'Has significant influence or control over the trustees of a trust'. Identity verified by GLAISYERS SOLICITORS LLP (ACSP) on 21 January 2026.",
-          "linkedin": {
+          "linkedin_informations": {
             "confirmed": true,
             "confirmation_basis": "Public profile headline matches name and Non-Executive Vice-Chairman position at Andrews Sykes Group plc",
             "profile_url": "https://www.linkedin.com/in/jean-pierre-murray-example",
@@ -5214,7 +5214,7 @@
     }
 
     function hasLinkedinData(p) {
-      const li = p.linkedin || {};
+      const li = p.linkedin_informations || {};
       if (p.linkedin_url || li.profile_url) return true;
       return !!(li.headline || li.about || li.location || li.current_position ||
         (li.experience && li.experience.length) || (li.education && li.education.length) ||
@@ -5224,7 +5224,7 @@
     }
 
     function renderLinkedInTab(p) {
-      const li = p.linkedin || {};
+      const li = p.linkedin_informations || {};
       const url = li.profile_url || p.linkedin_url || null;
       const confirmed = li.confirmed != null ? li.confirmed : (p.linkedin_confirmed ?? null);
 
@@ -5337,7 +5337,7 @@
         details.id = 'profile-' + p.id;
 
         const liChip = (() => {
-          const li = p.linkedin || {};
+          const li = p.linkedin_informations || {};
           if (li.confirmed === true || p.linkedin_confirmed === true) return '<span class="chip chip-green">LinkedIn</span>';
           if (hasLinkedinData(p)) return '<span class="chip chip-amber">LinkedIn</span>';
           return '';
@@ -6105,9 +6105,9 @@
           nationality: x.nationality,
           country_of_residence: x.country_of_residence,
           date_of_birth_or_age: x.date_of_birth_or_age,
-          linkedin_url: x.linkedin_url || (x.linkedin && x.linkedin.profile_url) || null,
-          linkedin_confirmed: x.linkedin_confirmed != null ? x.linkedin_confirmed : (x.linkedin ? !!x.linkedin.confirmed : null),
-          linkedin: x.linkedin || null,
+          linkedin_url: x.linkedin_url || (x.linkedin_informations && x.linkedin_informations.profile_url) || null,
+          linkedin_confirmed: x.linkedin_confirmed != null ? x.linkedin_confirmed : (x.linkedin_informations ? !!x.linkedin_informations.confirmed : null),
+          linkedin_informations: x.linkedin_informations || null,
           compliance_screening: x.compliance_screening || null,
           source_of_wealth: x.source_of_wealth,
           source_of_wealth_category: x.source_of_wealth_category,
