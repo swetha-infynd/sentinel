@@ -1203,7 +1203,7 @@
               class="normal-case font-normal tracking-normal text-slate-400">(optional — leave empty for a company-only
               report)</span></label>
           <textarea class="json-input" id="peopleJsonInput" style="min-height:170px"
-            placeholder='Paste the people profile JSON (KeyExecutivesReport: company, executives, sources, data_gaps) here...'></textarea>
+            placeholder='Paste the people profile JSON (KeyExecutivesAndBoardOfDirectorsReport: company, executives, board_of_directors, sources, data_gaps) here...'></textarea>
         </div>
         <div id="jsonError" class="mt-2 text-sm text-red-600 hidden"></div>
       </div>
@@ -4012,7 +4012,7 @@
         renderStockListing(d.stock_listing),
         renderGraph(d.graph, formerOwnerIds),
         renderSubsidiaries(d.source_of_funds_and_wealth?.subsidiaries),
-        renderBoard(d.board_of_directors, d.key_executives),
+        renderBoard(d.board_of_directors, d.key_executives, d.board_summary),
         renderIndividualProfiles(d.individual_profiles),
         renderStakeholders(d.stakeholders),
         renderSoF(d.source_of_funds_and_wealth),
@@ -5116,7 +5116,7 @@
     }
 
     // ============ BOARD & EXECUTIVES ============
-    function renderBoard(board, execs) {
+    function renderBoard(board, execs, boardSummary) {
       const isTrustee = (p, isExec) => {
         const roleStr = String((isExec ? p.title : p.role) || '').toLowerCase();
         const notesStr = String(p.notes || '').toLowerCase();
@@ -5142,23 +5142,39 @@
           const fsEntry = findFieldSourcesByPrefix(prefix);
           return fsEntry ? fsEntry.page_numbers : null;
         })() : null);
+        const crossCheck = p.cross_check || (p.extra && p.extra.registry_presence) || null;
+        const former = p.is_current === false || !!p.resigned_date;
+        const detailBits = [
+          p.nationality ? 'Nationality: ' + p.nationality : '',
+          p.country_of_residence ? 'Resident: ' + p.country_of_residence : '',
+          p.occupation ? 'Occupation: ' + p.occupation : '',
+          (p.committees && p.committees.length) ? 'Committees: ' + p.committees.join(', ') : '',
+          (p.other_directorships && p.other_directorships.length) ? 'Other directorships: ' + p.other_directorships.join('; ') : ''
+        ].filter(Boolean);
         return `
       <tr class="border-t border-slate-100">
         <td class="p-2.5 align-top">
           <div class="flex items-center gap-2">
             <div class="avatar transform scale-75 origin-left" style="margin:0">${initials(p.name)}</div>
-            <div class="font-semibold text-slate-900">${escapeHtml(p.name)}</div>
+            <div>
+              <div class="font-semibold text-slate-900">${escapeHtml(p.name)}</div>
+              ${p.full_name_as_per_legal_doc && p.full_name_as_per_legal_doc !== p.name
+                ? `<div class="text-[10px] text-slate-400">Legal name: ${escapeHtml(p.full_name_as_per_legal_doc)}</div>` : ''}
+            </div>
           </div>
         </td>
         <td class="p-2.5 align-top">
           <div class="text-sm text-slate-700">${escapeHtml(isExec ? p.title : p.role)}</div>
-          <div class="text-[10px] text-slate-400 mt-1">Appointed ${formatDate(p.appointed_date)}</div>
+          ${(p.appointed_date || p.resigned_date) ? `<div class="text-[10px] text-slate-400 mt-1">Appointed ${formatDate(p.appointed_date)}${!isExec && p.resigned_date ? ' · Resigned ' + formatDate(p.resigned_date) : ''}</div>` : ''}
         </td>
         <td class="p-2.5 align-top">
           <span class="chip chip-primary">${escapeHtml(p.director_type || (isExec ? 'Executive' : 'Officer'))}</span>
+          ${former ? '<div class="mt-1"><span class="chip chip-amber">Former</span></div>' : ''}
+          ${!isExec && crossCheck ? `<div class="text-[10px] text-slate-400 mt-1">${escapeHtml(crossCheck)}</div>` : ''}
         </td>
         <td class="p-2.5 align-top max-w-xs">
           ${p.bio_short ? `<div class="text-slate-600 mb-1">${escapeHtml(p.bio_short)}</div>` : ''}
+          ${detailBits.length ? `<div class="text-[11px] text-slate-500 mb-1">${detailBits.map(escapeHtml).join(' · ')}</div>` : ''}
           ${p.excerpts ? `<div class="text-[11px] text-slate-500 italic mb-1">"${escapeHtml(p.excerpts)}"</div>` : ''}
           ${p.notes ? `<div class="text-[11px] text-slate-400 italic">${escapeHtml(p.notes)}</div>` : ''}
         </td>
@@ -5188,11 +5204,26 @@
     </div>
   `;
 
+      const bs = boardSummary || {};
+      const summaryChips = [
+        bs.board_size != null ? bs.board_size + ' members' : null,
+        bs.board_composition || null,
+        bs.cross_check_status ? 'Cross-check: ' + bs.cross_check_status : null
+      ].filter(Boolean);
+
       card.innerHTML = `
-    ${filteredBoard.length > 0 ? tableWrap(filteredBoard.map((b, i) => renderPerson(b, false, i)).join('')) : ''}
+    ${filteredBoard.length > 0 ? `
+      <div>
+        <div class="flex items-center justify-between gap-3 flex-wrap mb-3">
+          <div class="kv-label mb-0">Board of Directors</div>
+          ${summaryChips.length ? `<div class="flex flex-wrap gap-1.5">${summaryChips.map(c => `<span class="chip chip-muted">${escapeHtml(c)}</span>`).join('')}</div>` : ''}
+        </div>
+        ${tableWrap(filteredBoard.map((b, i) => renderPerson(b, false, i)).join(''))}
+      </div>
+    ` : ''}
     ${(filteredExecs && filteredExecs.length) ? `
       <div class="${filteredBoard.length > 0 ? 'mt-6 pt-6 border-t border-slate-200/70' : ''}">
-        <div class="kv-label mb-3">Key Executives (cross-checked)</div>
+        <div class="kv-label mb-3">Key Executives</div>
         ${tableWrap(filteredExecs.map((e, i) => renderPerson(e, true, i)).join(''))}
       </div>
     ` : ''}
@@ -5758,7 +5789,13 @@
       }).join('');
 
       const boardRows = (d.board_of_directors || []).map(b => `
-    <tr><td>${esc(b.name)}</td><td>${esc(b.role)}</td><td>${esc(b.director_type || '')}</td><td>${F(b.appointed_date)}</td></tr>`).join('');
+    <tr><td>${esc(b.name)}${b.is_current === false ? ' <i>(former)</i>' : ''}</td><td>${esc(b.role)}${b.resigned_date ? ' <i>(resigned ' + F(b.resigned_date) + ')</i>' : ''}</td><td>${esc(b.director_type || '')}${(b.cross_check || (b.extra && b.extra.registry_presence)) ? ' · ' + esc(b.cross_check || b.extra.registry_presence) : ''}</td><td>${F(b.appointed_date)}</td></tr>`).join('');
+
+      const bs = d.board_summary || {};
+      const boardSummaryLine = [bs.board_size != null ? bs.board_size + ' members' : '',
+        bs.board_composition || '',
+        bs.cross_check_status ? 'Cross-check: ' + bs.cross_check_status : '']
+        .filter(Boolean).join(' · ');
 
       const execRows = (d.key_executives || []).map(e => `
     <tr><td>${esc(e.name)}</td><td>${esc(e.title)}</td><td>${F(e.appointed_date)}</td></tr>`).join('');
@@ -5937,13 +5974,13 @@
     ` : ''}
 
     <h2>9. Board &amp; Key Executives</h2>
-    <p class="doc-p"><b>Board of directors.</b></p>
+    <p class="doc-p"><b>Board of directors.</b>${boardSummaryLine ? ' ' + esc(boardSummaryLine) + '.' : ''}</p>
     <table class="doc-tbl">
       <tr><th>Name</th><th>Role</th><th>Type</th><th>Appointed</th></tr>
       ${boardRows || '<tr><td colspan="4">None disclosed.</td></tr>'}
     </table>
     ${(d.key_executives || []).length ? `
-    <p class="doc-p"><b>Key executives (cross-checked from third-party sources).</b></p>
+    <p class="doc-p"><b>Key executives.</b></p>
     <table class="doc-tbl">
       <tr><th>Name</th><th>Title</th><th>Since</th></tr>
       ${execRows}
@@ -6071,9 +6108,10 @@
       return d;
     }
 
-    /* Merges the people profile JSON (KeyExecutivesReport) into the report:
-       executives → Board / Key Executives / Individual Profiles, its sources are
-       appended to the bibliography and its data gaps appended to the report gaps. */
+    /* Merges the people profile JSON (KeyExecutivesAndBoardOfDirectorsReport) into
+       the report: board_of_directors → Board table (rendered above the executives),
+       executives → Key Executives / Individual Profiles; its sources are appended to
+       the bibliography and its data gaps appended to the report gaps. */
     function applyPeopleProfile(d, people) {
       const merged = mergePeopleSources(d.sources, people.sources);
       d.sources = merged.sources;
@@ -6089,7 +6127,39 @@
       d.meta.data_gaps = uniqueStrings([...(d.meta.data_gaps || []), ...(people.data_gaps || [])]);
 
       const execs = Array.isArray(people.executives) ? people.executives : [];
+      const rawBoard = Array.isArray(people.board_of_directors) ? people.board_of_directors : [];
       const board = [], keyExecs = [], profiles = [];
+
+      /* The people profile carries a complete, cross-checked board (ids D1..Dn) which
+         becomes its own table above the executives. Only when that array is absent do
+         we fall back to pulling director/chair-titled executives out of the executives
+         list (legacy KeyExecutivesReport shape). */
+      const splitExecsByTitle = rawBoard.length === 0;
+
+      rawBoard.forEach(x => {
+        if (!x || !x.name) return;
+        board.push({
+          id: x.id,
+          name: x.name,
+          full_name_as_per_legal_doc: x.full_name_as_per_legal_doc || null,
+          role: x.title,
+          director_type: x.director_type || deriveDirectorType(x.title),
+          appointed_date: x.appointed_date,
+          resigned_date: x.resigned_date || null,
+          is_current: x.is_current !== false,
+          nationality: x.nationality,
+          country_of_residence: x.country_of_residence,
+          occupation: x.occupation,
+          date_of_birth_or_age: x.date_of_birth_or_age,
+          committees: x.committees || [],
+          other_directorships: (x.other_directorships || []).map(directorshipToString).filter(Boolean),
+          registry_listed: x.registry_listed,
+          website_listed: x.website_listed,
+          cross_check: x.cross_check,
+          source_ids: remap(x.source_ids),
+          notes: x.notes
+        });
+      });
 
       execs.forEach(x => {
         if (!x) return;
@@ -6135,13 +6205,14 @@
           notes: x.notes,
           individual_profile_id: x.id
         };
-        if (/director|chair/i.test(String(x.title || ''))) {
+        if (splitExecsByTitle && /director|chair/i.test(String(x.title || ''))) {
           board.push({ ...common, role: x.title, director_type: deriveDirectorType(x.title) });
         } else {
           keyExecs.push({ ...common, title: x.title });
         }
       });
 
+      d.board_summary = pco.board_summary || d.board_summary || null;
       d.board_of_directors = board;
       d.key_executives = keyExecs;
       d.individual_profiles = profiles;
@@ -6163,8 +6234,8 @@
         if (typeof peopleJson !== 'object' || Array.isArray(peopleJson)) {
           throw new Error('People profile JSON must be an object');
         }
-        if (!Array.isArray(peopleJson.executives)) {
-          throw new Error('People profile JSON must contain an "executives" array');
+        if (!Array.isArray(peopleJson.executives) && !Array.isArray(peopleJson.board_of_directors)) {
+          throw new Error('People profile JSON must contain an "executives" array (and, if available, a "board_of_directors" array)');
         }
         applyPeopleProfile(d, peopleJson);
       }
